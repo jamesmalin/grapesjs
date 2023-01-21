@@ -15,17 +15,35 @@ const editor = grapesjs.init({
 })
 ```
 
-Once the editor is instantiated you can use its API. Before using these methods you should get the module from the instance
+Once the editor is instantiated you can use its API and listen to its events. Before using these methods, you should get the module from the instance.
 
 ```js
+// Listen to events
+editor.on('rte:enable', () => { ... });
+
+// Use the API
 const rte = editor.RichTextEditor;
+rte.add(...);
 ```
 
--   [add][3]
--   [get][4]
--   [getAll][5]
--   [remove][6]
--   [getToolbarEl][7]
+## Available Events
+
+*   `rte:enable` - RTE enabled. The view, on which RTE is enabled, is passed as an argument
+*   `rte:disable` - RTE disabled. The view, on which RTE is disabled, is passed as an argument
+
+## Methods
+
+*   [add][3]
+*   [get][4]
+*   [getAll][5]
+*   [remove][6]
+*   [getToolbarEl][7]
+
+## getConfig
+
+Get configuration object
+
+Returns **[Object][8]** 
 
 ## add
 
@@ -33,8 +51,8 @@ Add a new action to the built-in RTE toolbar
 
 ### Parameters
 
--   `name` **[string][8]** Action name
--   `action` **[Object][9]** Action options (optional, default `{}`)
+*   `name` **[string][9]** Action name
+*   `action` **[Object][8]** Action options (optional, default `{}`)
 
 ### Examples
 
@@ -68,6 +86,32 @@ rte.add('fontSize', {
     }
    }
   })
+// An example with state
+const isValidAnchor = (rte) => {
+  // a utility function to help determine if the selected is a valid anchor node
+  const anchor = rte.selection().anchorNode;
+  const parentNode  = anchor && anchor.parentNode;
+  const nextSibling = anchor && anchor.nextSibling;
+  return (parentNode && parentNode.nodeName == 'A') || (nextSibling && nextSibling.nodeName == 'A')
+}
+rte.add('toggleAnchor', {
+  icon: `<span style="transform:rotate(45deg)">&supdsub;</span>`,
+  state: (rte, doc) => {
+   if (rte && rte.selection()) {
+     // `btnState` is a integer, -1 for disabled, 0 for inactive, 1 for active
+     return isValidAnchor(rte) ? btnState.ACTIVE : btnState.INACTIVE;
+   } else {
+     return btnState.INACTIVE;
+   }
+  },
+  result: (rte, action) => {
+    if (isValidAnchor(rte)) {
+      rte.exec('unlink');
+    } else {
+      rte.insertHTML(`<a class="link" href="">${rte.selection()}</a>`);
+    }
+  }
+})
 ```
 
 ## get
@@ -76,7 +120,7 @@ Get the action by its name
 
 ### Parameters
 
--   `name` **[string][8]** Action name
+*   `name` **[string][9]** Action name
 
 ### Examples
 
@@ -85,7 +129,7 @@ const action = rte.get('bold');
 // {name: 'bold', ...}
 ```
 
-Returns **[Object][9]** 
+Returns **[Object][8]** 
 
 ## getAll
 
@@ -99,7 +143,7 @@ Remove the action from the toolbar
 
 ### Parameters
 
--   `name` **[string][8]** 
+*   `name` **[string][9]** 
 
 ### Examples
 
@@ -108,7 +152,7 @@ const action = rte.remove('bold');
 // {name: 'bold', ...}
 ```
 
-Returns **[Object][9]** Removed action
+Returns **[Object][8]** Removed action
 
 ## getToolbarEl
 
@@ -118,7 +162,7 @@ Returns **[HTMLElement][11]**
 
 [1]: https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand
 
-[2]: https://github.com/artf/grapesjs/blob/master/src/rich_text_editor/config/config.js
+[2]: https://github.com/artf/grapesjs/blob/master/src/rich_text_editor/config/config.ts
 
 [3]: #add
 
@@ -130,9 +174,9 @@ Returns **[HTMLElement][11]**
 
 [7]: #gettoolbarel
 
-[8]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String
+[8]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object
 
-[9]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object
+[9]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String
 
 [10]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array
 

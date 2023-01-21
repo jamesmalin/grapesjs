@@ -1,12 +1,18 @@
 import Backbone from 'backbone';
 import { isUndefined } from 'underscore';
-import ColorPicker from 'utils/ColorPicker';
+import ColorPicker from '../../utils/ColorPicker';
 import Input from './Input';
 
-const $ = Backbone.$;
-ColorPicker($);
+const { $ } = Backbone;
+$ && ColorPicker($);
 
-export default Input.extend({
+const getColor = color => {
+  const name = color.getFormat() === 'name' && color.toName();
+  const cl = color.getAlpha() == 1 ? color.toHexString() : color.toRgbString();
+  return name || cl.replace(/ /g, '');
+};
+
+export default class InputColor extends Input {
   template() {
     const ppfx = this.ppfx;
     return `
@@ -17,16 +23,45 @@ export default Input.extend({
         </div>
       </div>
     `;
-  },
+  }
 
   inputClass() {
     const ppfx = this.ppfx;
     return `${ppfx}field ${ppfx}field-color`;
-  },
+  }
 
   holderClass() {
     return `${this.ppfx}input-holder`;
-  },
+  }
+
+  remove() {
+    Input.prototype.remove.apply(this, arguments);
+    this.colorEl.spectrum('destroy');
+  }
+
+  handleChange(e) {
+    e.stopPropagation();
+    const { value } = e.target;
+    if (isUndefined(value)) return;
+    this.__onInputChange(value);
+  }
+
+  __onInputChange(val) {
+    const { model, opts } = this;
+    const { onChange } = opts;
+    let value = val;
+    const colorEl = this.getColorEl();
+
+    // Check the color by using the ColorPicker's parser
+    if (colorEl) {
+      colorEl.spectrum('set', value);
+      const tc = colorEl.spectrum('get');
+      const color = value && getColor(tc);
+      color && (value = color);
+    }
+
+    onChange ? onChange(value) : model.set({ value }, { fromInput: 1 });
+  }
 
   /**
    * Set value to the model
@@ -34,8 +69,8 @@ export default Input.extend({
    * @param {Object} opts
    */
   setValue(val, opts = {}) {
-    const model = this.model;
-    const def = model.get('defaults');
+    const { model } = this;
+    const def = !isUndefined(opts.def) ? opts.def : model.get('defaults');
     const value = !isUndefined(val) ? val : !isUndefined(def) ? def : '';
     const inputEl = this.getInputEl();
     const colorEl = this.getColorEl();
@@ -44,11 +79,12 @@ export default Input.extend({
     colorEl.get(0).style.backgroundColor = valueClr;
 
     // This prevents from adding multiple thumbs in spectrum
-    if (opts.fromTarget) {
+    if (opts.fromTarget || (opts.fromInput && !opts.avoidStore)) {
       colorEl.spectrum('set', valueClr);
       this.noneColor = value == 'none';
+      this.movedColor = valueClr;
     }
-  },
+  }
 
   /**
    * Get the color input element
@@ -56,26 +92,31 @@ export default Input.extend({
    */
   getColorEl() {
     if (!this.colorEl) {
-      const self = this;
+      const { em, model, opts } = this;
       const ppfx = this.ppfx;
-      var model = this.model;
+      const { onChange } = opts;
 
       var colorEl = $(`<div class="${this.ppfx}field-color-picker"></div>`);
       var cpStyle = colorEl.get(0).style;
-      var elToAppend = this.em && this.em.config ? this.em.config.el : '';
-      var colorPickerConfig =
-        (this.em && this.em.getConfig && this.em.getConfig('colorPicker')) ||
-        {};
-      const getColor = color => {
-        let cl =
-          color.getAlpha() == 1 ? color.toHexString() : color.toRgbString();
-        return cl.replace(/ /g, '');
+      var elToAppend = em && em.config ? em.config.el : '';
+      var colorPickerConfig = (em && em.getConfig && em.getConfig().colorPicker) || {};
+
+      this.movedColor = '';
+      let changed = false;
+      let previousColor;
+      this.$el.find('[data-colorp-c]').append(colorEl);
+
+      const handleChange = (value, complete = true) => {
+        if (onChange) {
+          onChange(value, !complete);
+        } else {
+          complete && model.setValueFromInput(0, false); // for UndoManager
+          model.setValueFromInput(value, complete);
+        }
       };
 
-      let changed = 0;
-      let previousColor;
-      this.$el.find(`[data-colorp-c]`).append(colorEl);
       colorEl.spectrum({
+        color: model.getValue() || false,
         containerClassName: `${ppfx}one-bg ${ppfx}two-color`,
         appendTo: elToAppend || 'body',
         maxSelectionSize: 8,
@@ -87,39 +128,51 @@ export default Input.extend({
 
         // config expanded here so that the functions below are not overridden
         ...colorPickerConfig,
+        ...(model.get('colorPicker') || {}),
 
-        move(color) {
+        move: color => {
+          const cl = getColor(color);
+          this.movedColor = cl;
+          cpStyle.backgroundColor = cl;
+          handleChange(cl, false);
+        },
+        change: color => {
+          changed = true;
           const cl = getColor(color);
           cpStyle.backgroundColor = cl;
-          model.setValueFromInput(cl, 0);
+          handleChange(cl);
+          this.noneColor = 0;
         },
-        change(color) {
-          changed = 1;
-          const cl = getColor(color);
-          cpStyle.backgroundColor = cl;
-          model.setValueFromInput(cl);
-          self.noneColor = 0;
+        show: color => {
+          changed = false;
+          this.movedColor = '';
+          previousColor = onChange ? model.getValue({ noDefault: true }) : getColor(color);
         },
-        show(color) {
-          changed = 0;
-          previousColor = getColor(color);
-        },
-        hide(color) {
-          if (!changed && previousColor) {
-            if (self.noneColor) {
+        hide: () => {
+          if (!changed && (previousColor || onChange)) {
+            if (this.noneColor) {
               previousColor = '';
             }
             cpStyle.backgroundColor = previousColor;
             colorEl.spectrum('set', previousColor);
-            model.setValueFromInput(previousColor, 0);
+            handleChange(previousColor, false);
           }
-        }
+        },
       });
+
+      if (em && em.on) {
+        this.listenTo(em, 'component:selected', () => {
+          this.movedColor && handleChange(this.movedColor);
+          changed = true;
+          this.movedColor = '';
+          colorEl.spectrum('hide');
+        });
+      }
 
       this.colorEl = colorEl;
     }
     return this.colorEl;
-  },
+  }
 
   render() {
     Input.prototype.render.call(this);
@@ -127,4 +180,4 @@ export default Input.extend({
     this.getColorEl();
     return this;
   }
-});
+}
